@@ -736,6 +736,11 @@ const AudioSystem = {
     const notes = [220, 277, 220, 165];
     notes.forEach((n, i) => setTimeout(() => this.tone(n, 0.4, 'sawtooth', 0.22), i * 250));
   },
+  giantTank() {
+    const notes = [330, 392, 330, 262, 330, 392, 523];
+    notes.forEach((n, i) => setTimeout(() => this.tone(n, 0.3, 'triangle', 0.2), i * 180));
+  },
+  tankClick() { this.tone(1200, 0.04, 'square', 0.08); },
   startMusic() { if (!this.ctx || this.musicTimer) return; this._playMusicLoop(); },
   _playMusicLoop() {
     if (this.musicTimer) clearInterval(this.musicTimer);
@@ -2377,7 +2382,7 @@ class ChaosProjectile {
 
 /* ============ Camioneta del Miniboss ============ */
 class ChaosTruck {
-  constructor(side, targetX, containerCount) {
+  constructor(side, targetX, containerCount, repellentCount = 0) {
     this.side = side;
     this.targetX = targetX;
     this.x = side === 'left' ? -140 : 1100;
@@ -2387,7 +2392,15 @@ class ChaosTruck {
     this.state = 'entering';
     this.speed = 130;
     this.containerCount = containerCount;
+    this.repellentCount = repellentCount;
+    this.throwQueue = [];
+    for (let i = 0; i < containerCount; i++) this.throwQueue.push('container');
+    for (let i = 0; i < repellentCount; i++) this.throwQueue.push('repellent');
+    this.throwQueue = Utils.shuffle(this.throwQueue);
     this.thrownCount = 0;
+    this.containersThrown = 0;
+    this.repellentsThrown = 0;
+    this.nextThrowType = 'container';
     this.throwTimer = 0.6;
     this.throwInterval = 0.75;
     this.leaveTimer = 0;
@@ -2406,10 +2419,13 @@ class ChaosTruck {
         this.state = 'active';
       }
     } else if (this.state === 'active') {
-      if (this.thrownCount < this.containerCount) {
+      if (this.thrownCount < this.throwQueue.length) {
         this.throwTimer -= dt;
         if (this.throwTimer <= 0) {
           this.throwTimer = this.throwInterval;
+          this.nextThrowType = this.throwQueue[this.thrownCount];
+          if (this.nextThrowType === 'container') this.containersThrown++;
+          else this.repellentsThrown++;
           this.thrownCount++;
           return 'throw';
         }
@@ -2510,7 +2526,7 @@ class ChaosTruck {
     ctx.fillStyle = this.shirtColor;
     ctx.beginPath(); ctx.roundRect(manX - 12, manY - 2, 24, 24, 7); ctx.fill();
     ctx.strokeStyle = this.skinColor; ctx.lineWidth = 5; ctx.lineCap = 'round';
-    const isThrowing = (this.state === 'active' && this.thrownCount < this.containerCount && this.throwTimer < 0.3);
+    const isThrowing = (this.state === 'active' && this.thrownCount < this.throwQueue.length && this.throwTimer < 0.3);
     if (isThrowing) {
       ctx.beginPath();
       ctx.moveTo(manX - 12, manY + 4);
@@ -2555,7 +2571,7 @@ class ChaosTruck {
       ctx.restore();
     }
     ctx.restore();
-    const remaining = this.containerCount - this.thrownCount;
+    const remaining = this.containerCount - this.containersThrown;
     if (this.state === 'active' || this.state === 'waiting') {
       ctx.save();
       ctx.font = 'bold 13px Comic Sans MS, sans-serif';
@@ -2608,6 +2624,430 @@ class ChaosRepellentItem {
     ctx.fillStyle = '#1B5E20';
     ctx.beginPath(); ctx.roundRect(this.x - 6, y - 20, 12, 8, 2); ctx.fill();
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+}
+
+/* ============ Tanque Gigante (oleada 8) ============ */
+class GiantTank {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.width = 300;
+    this.height = 240;
+    this.maxClicks = 30;
+    this.clicksRemaining = 30;
+    this.waterLevel = 1.0;
+    this.pulseTimer = 0;
+  }
+  getRect() {
+    return {
+      x: this.x - this.width / 2,
+      y: this.y - this.height / 2,
+      w: this.width,
+      h: this.height
+    };
+  }
+  containsPoint(px, py) {
+    const margin = 20;
+    return Math.abs(px - this.x) < this.width / 2 + margin &&
+           Math.abs(py - this.y) < this.height / 2 + margin;
+  }
+  click() {
+    if (this.clicksRemaining <= 0) return false;
+    this.clicksRemaining--;
+    this.waterLevel = this.clicksRemaining / this.maxClicks;
+    this.pulseTimer = 0.18;
+    return true;
+  }
+  isEmpty() { return this.clicksRemaining <= 0; }
+  update(dt) { if (this.pulseTimer > 0) this.pulseTimer -= dt; }
+  draw(ctx) {
+    const x = this.x, y = this.y;
+    const W = this.width, H = this.height;
+    const topY = y - H / 2;
+    const bottomY = y + H / 2;
+    const rx = W / 2;
+    const ry = 24;
+
+    // Sombra
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(x, bottomY + 14, rx + 20, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pulso al clickear
+    if (this.pulseTimer > 0) {
+      const t = this.pulseTimer / 0.18;
+      ctx.strokeStyle = `rgba(255, 235, 59, ${t})`;
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx + 40 * (1 - t) + 20, H / 2 + 40 * (1 - t) + 20, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Cuerpo (cilindro gigante)
+    const bodyGrad = ctx.createLinearGradient(x - rx, 0, x + rx, 0);
+    bodyGrad.addColorStop(0, '#0A3B7A');
+    bodyGrad.addColorStop(0.15, '#1565C0');
+    bodyGrad.addColorStop(0.5, '#42A5F5');
+    bodyGrad.addColorStop(0.85, '#1565C0');
+    bodyGrad.addColorStop(1, '#0A3B7A');
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.moveTo(x - rx, topY);
+    ctx.lineTo(x - rx, bottomY);
+    ctx.ellipse(x, bottomY, rx, ry, 0, Math.PI, 0, true);
+    ctx.lineTo(x + rx, topY);
+    ctx.ellipse(x, topY, rx, ry, 0, 0, Math.PI, false);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#0A2E6B';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Agua visible adentro (recortada al cuerpo)
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x - rx + 6, topY + 8);
+    ctx.lineTo(x - rx + 6, bottomY - 6);
+    ctx.ellipse(x, bottomY - 6, rx - 6, ry - 6, 0, Math.PI, 0, true);
+    ctx.lineTo(x + rx - 6, topY + 8);
+    ctx.ellipse(x, topY + 8, rx - 6, ry - 6, 0, 0, Math.PI, false);
+    ctx.closePath();
+    ctx.clip();
+
+    const waterAreaTop = topY + 8;
+    const waterAreaBottom = bottomY - 6;
+    const waterAreaHeight = waterAreaBottom - waterAreaTop;
+    const waterHeight = waterAreaHeight * this.waterLevel;
+    const waterTopY = waterAreaBottom - waterHeight;
+
+    const waterGrad = ctx.createLinearGradient(0, waterTopY, 0, bottomY);
+    waterGrad.addColorStop(0, '#81D4FA');
+    waterGrad.addColorStop(0.4, '#4FC3F7');
+    waterGrad.addColorStop(1, '#0277BD');
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(x - rx, waterTopY, W, bottomY - waterTopY);
+
+    // Superficie del agua
+    if (this.waterLevel > 0.02) {
+      const surfGrad = ctx.createRadialGradient(x - 20, waterTopY, 5, x, waterTopY, rx);
+      surfGrad.addColorStop(0, '#B3E5FC');
+      surfGrad.addColorStop(0.5, '#4FC3F7');
+      surfGrad.addColorStop(1, '#0288D1');
+      ctx.fillStyle = surfGrad;
+      ctx.beginPath();
+      ctx.ellipse(x, waterTopY, rx - 6, ry - 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ondas
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const wy = waterTopY + 30 + i * 40;
+        if (wy < bottomY - 10) {
+          ctx.beginPath();
+          ctx.moveTo(x - rx + 20, wy);
+          ctx.bezierCurveTo(x - 40, wy - 4, x + 40, wy + 4, x + rx - 20, wy);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
+
+    // Anillos horizontales
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 2;
+    for (let i = 1; i <= 6; i++) {
+      const ly = topY + (bottomY - topY) * i / 7;
+      ctx.beginPath();
+      ctx.moveTo(x - rx + 6, ly);
+      ctx.quadraticCurveTo(x, ly + 6, x + rx - 6, ly);
+      ctx.stroke();
+    }
+
+    // Brillo vertical
+    const shineGrad = ctx.createLinearGradient(x - rx * 0.7, 0, x - rx * 0.2, 0);
+    shineGrad.addColorStop(0, 'rgba(255,255,255,0)');
+    shineGrad.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+    shineGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = shineGrad;
+    ctx.fillRect(x - rx * 0.7, topY + 14, rx * 0.5, (bottomY - topY) - 28);
+
+    // Tapa superior
+    ctx.fillStyle = '#0A2E6B';
+    ctx.beginPath();
+    ctx.ellipse(x, topY, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1565C0';
+    ctx.beginPath();
+    ctx.ellipse(x, topY, rx - 8, ry - 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0A1A3A';
+    ctx.beginPath();
+    ctx.ellipse(x, topY + 3, rx - 14, ry - 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cartel "¡CLICKEÁ RÁPIDO!"
+    const bounce = Math.sin(performance.now() / 200) * 4;
+    const badgeY = topY - 62 + bounce;
+    ctx.fillStyle = 'rgba(255, 235, 59, 0.96)';
+    ctx.strokeStyle = '#E65100';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(x - 130, badgeY, 260, 42, 12);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#B71C1C';
+    ctx.font = 'bold 20px Comic Sans MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('👆 ¡CLICKEÁ RÁPIDO!', x, badgeY + 22);
+
+    // Barra de progreso (llenado al revés: vacío a full)
+    const barW = W - 20;
+    const barH = 22;
+    const barX = x - barW / 2;
+    const barY = bottomY + 30;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.roundRect(barX - 5, barY - 5, barW + 10, barH + 10, 10);
+    ctx.fill();
+    ctx.strokeStyle = '#FFF';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = '#37474F';
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, 6);
+    ctx.fill();
+
+    const fillW = barW * (1 - this.waterLevel);
+    if (fillW > 0) {
+      const fillGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+      fillGrad.addColorStop(0, '#66BB6A');
+      fillGrad.addColorStop(0.5, '#FFC107');
+      fillGrad.addColorStop(1, '#EF5350');
+      ctx.fillStyle = fillGrad;
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, fillW, barH, 6);
+      ctx.fill();
+    }
+
+    // Texto de clicks
+    ctx.fillStyle = '#FFF';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 4;
+    ctx.font = 'bold 16px Comic Sans MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const txt = `${this.clicksRemaining} clicks`;
+    ctx.strokeText(txt, x, barY + barH / 2);
+    ctx.fillText(txt, x, barY + barH / 2);
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+}
+
+/* ============ 5 vecinos trayendo el tanque gigante ============ */
+class GiantTankCarrier {
+  constructor(side, targetX, targetY) {
+    this.side = side;
+    this.targetX = targetX;
+    this.targetY = targetY;
+    this.tankW = 300;
+    this.tankH = 240;
+    this.x = side === 'left' ? -this.tankW : 960 + this.tankW;
+    this.y = targetY;
+    this.state = 'entering';
+    this.speed = 200;
+    this.placeTimer = 0;
+    this.done = false;
+    this.walkPhase = 0;
+    // 5 vecinos alrededor del tanque (2 izquierda, 3 derecha)
+    this.vecinos = [
+      { dx: -this.tankW / 2 - 30, dy: -50, shirt: '#EF5350', skin: '#FFE0BD', hair: '#4E342E' },
+      { dx: -this.tankW / 2 - 30, dy: 50, shirt: '#42A5F5', skin: '#FFCC80', hair: '#1A1A1A' },
+      { dx: this.tankW / 2 + 30, dy: -70, shirt: '#AB47BC', skin: '#F4A460', hair: '#8D6E63' },
+      { dx: this.tankW / 2 + 30, dy: 0, shirt: '#FFB300', skin: '#C68642', hair: '#D4A373' },
+      { dx: this.tankW / 2 + 30, dy: 70, shirt: '#26A69A', skin: '#8D5524', hair: '#B71C1C' }
+    ];
+  }
+  update(dt) {
+    this.walkPhase += dt * 8;
+    if (this.state === 'entering') {
+      const dir = this.side === 'left' ? 1 : -1;
+      this.x += dir * this.speed * dt;
+      if ((this.side === 'left' && this.x >= this.targetX) ||
+          (this.side === 'right' && this.x <= this.targetX)) {
+        this.x = this.targetX;
+        this.state = 'placing';
+        this.placeTimer = 0;
+      }
+    } else if (this.state === 'placing') {
+      this.placeTimer += dt;
+      if (this.placeTimer >= 0.8) {
+        this.state = 'leaving';
+        return 'placed';
+      }
+    } else if (this.state === 'leaving') {
+      const dir = this.side === 'left' ? -1 : 1;
+      this.x += dir * this.speed * dt;
+      if (this.x < -this.tankW * 1.5 || this.x > 960 + this.tankW * 1.5) {
+        this.done = true;
+      }
+    }
+    return null;
+  }
+  getRect() {
+    return {
+      x: this.x - this.tankW / 2,
+      y: this.y - this.tankH / 2,
+      w: this.tankW,
+      h: this.tankH
+    };
+  }
+  draw(ctx) {
+    const x = this.x, y = this.y;
+    const W = this.tankW, H = this.tankH;
+    const topY = y - H / 2;
+    const bottomY = y + H / 2;
+    const rx = W / 2;
+    const ry = 24;
+
+    // Sombra
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(x, bottomY + 14, rx + 20, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tanque (sin agua visible: es solo el objeto que llevan)
+    const bodyGrad = ctx.createLinearGradient(x - rx, 0, x + rx, 0);
+    bodyGrad.addColorStop(0, '#0A3B7A');
+    bodyGrad.addColorStop(0.15, '#1565C0');
+    bodyGrad.addColorStop(0.5, '#42A5F5');
+    bodyGrad.addColorStop(0.85, '#1565C0');
+    bodyGrad.addColorStop(1, '#0A3B7A');
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.moveTo(x - rx, topY);
+    ctx.lineTo(x - rx, bottomY);
+    ctx.ellipse(x, bottomY, rx, ry, 0, Math.PI, 0, true);
+    ctx.lineTo(x + rx, topY);
+    ctx.ellipse(x, topY, rx, ry, 0, 0, Math.PI, false);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#0A2E6B';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Anillos
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 2;
+    for (let i = 1; i <= 6; i++) {
+      const ly = topY + (bottomY - topY) * i / 7;
+      ctx.beginPath();
+      ctx.moveTo(x - rx + 6, ly);
+      ctx.quadraticCurveTo(x, ly + 6, x + rx - 6, ly);
+      ctx.stroke();
+    }
+
+    // Brillo
+    const shineGrad = ctx.createLinearGradient(x - rx * 0.7, 0, x - rx * 0.2, 0);
+    shineGrad.addColorStop(0, 'rgba(255,255,255,0)');
+    shineGrad.addColorStop(0.5, 'rgba(255,255,255,0.3)');
+    shineGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = shineGrad;
+    ctx.fillRect(x - rx * 0.7, topY + 14, rx * 0.5, (bottomY - topY) - 28);
+
+    // Tapa
+    ctx.fillStyle = '#0A2E6B';
+    ctx.beginPath();
+    ctx.ellipse(x, topY, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1565C0';
+    ctx.beginPath();
+    ctx.ellipse(x, topY, rx - 8, ry - 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cartel "AGUA"
+    ctx.fillStyle = '#FFF9C4';
+    ctx.strokeStyle = '#E65100';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(x - 55, y - 16, 110, 32, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#E65100';
+    ctx.font = 'bold 18px Comic Sans MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💧 AGUA', x, y);
+
+    // 5 vecinos
+    for (const v of this.vecinos) {
+      this._drawVecino(ctx, x + v.dx, y + v.dy, v);
+    }
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+  _drawVecino(ctx, x, y, v) {
+    const bob = Math.sin(this.walkPhase) * 2;
+    const legSwing = Math.sin(this.walkPhase) * 6;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 30, 18, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#37474F';
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - 5, y + 12); ctx.lineTo(x - 5 + legSwing * 0.5, y + 28 + legSwing);
+    ctx.moveTo(x + 5, y + 12); ctx.lineTo(x + 5 - legSwing * 0.5, y + 28 - legSwing);
+    ctx.stroke();
+
+    ctx.fillStyle = v.shirt;
+    ctx.beginPath();
+    ctx.roundRect(x - 13, y - 12 + bob, 26, 26, 8);
+    ctx.fill();
+
+    // Brazos sosteniendo el tanque (apuntan hacia adentro)
+    const armDir = v.dx < 0 ? 1 : -1;
+    ctx.strokeStyle = v.skin;
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - 13 * armDir, y - 4 + bob);
+    ctx.lineTo(x - 22 * armDir, y - 12 + bob);
+    ctx.moveTo(x + 13 * armDir, y - 4 + bob);
+    ctx.lineTo(x + 22 * armDir, y - 12 + bob);
+    ctx.stroke();
+
+    ctx.fillStyle = v.skin;
+    ctx.beginPath();
+    ctx.arc(x, y - 24 + bob, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = v.hair;
+    ctx.beginPath();
+    ctx.arc(x, y - 28 + bob, 13, Math.PI, 0);
+    ctx.fill();
+
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.arc(x - 4, y - 24 + bob, 2.5, 0, Math.PI * 2);
+    ctx.arc(x + 4, y - 24 + bob, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#263238';
+    ctx.beginPath();
+    ctx.arc(x - 4, y - 24 + bob, 1.3, 0, Math.PI * 2);
+    ctx.arc(x + 4, y - 24 + bob, 1.3, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -2957,6 +3397,13 @@ class Game {
     this._repellentsInitialized = false;
     this.chaosRepellentsThrown = 0;
 
+    /* ===== Estado del Tanque Gigante (oleada 8) ===== */
+    this.chaosIsGiantTank = false;
+    this.giantTank = null;
+    this.giantTankCarrier = null;
+    this.giantTankTargetX = 480;
+    this.giantTankTargetY = 340;
+
     this.rain.onRainStart = () => {
       EduSystem.show("🌧️ ¡Está lloviendo! El agua se junta en los recipientes.");
       let lonasRemovidas = 0;
@@ -3056,6 +3503,15 @@ class Game {
       const d = Utils.dist(this.player.x, this.player.y, scene.plugPos.x, scene.plugPos.y);
       if (d < 130) { this.activatePump(); return; }
     }
+    // Si estamos en oleada de tanque gigante, click en el tanque si estamos cerca
+    if (this.gameMode === 'chaos' && this.giantTank && !this.giantTank.isEmpty()) {
+      if (this.isPlayerNearTank()) {
+        this.giantTank.click();
+        AudioSystem.tankClick();
+        this.updateGiantTankHUD();
+        return;
+      }
+    }
     let closest = null, closestD = Infinity;
     for (const c of this.containers) {
       const a = c.getAction();
@@ -3099,7 +3555,39 @@ class Game {
     }
     EduSystem.show(msg, 2500);
   }
+  isPlayerNearTank() {
+    if (!this.giantTank) return false;
+    const tr = this.giantTank.getRect();
+    const pad = 100;
+    return !(this.player.x + pad < tr.x ||
+             this.player.x - pad > tr.x + tr.w ||
+             this.player.y + pad < tr.y ||
+             this.player.y - pad > tr.y + tr.h);
+  }
+  updateGiantTankHUD() {
+    const dayEl = document.getElementById('hud-day');
+    if (!this.chaosIsGiantTank || !this.giantTank) return;
+    dayEl.textContent = `💧 Tanque · ⏱ ${Math.max(0, Math.ceil(this.chaosTimeLeft))}s · ${this.giantTank.clicksRemaining} clicks`;
+  }
   handleLeftClick(mx, my) {
+    // Click en el tanque gigante (modo caos, oleada 8)
+    if (this.gameMode === 'chaos' && this.giantTank && !this.giantTank.isEmpty()) {
+      if (this.giantTank.containsPoint(mx, my)) {
+        if (!this.isPlayerNearTank()) {
+          EduSystem.show("¡Acercate al tanque para vaciarlo!", 1200);
+          return;
+        }
+        if (this.giantTank.click()) {
+          AudioSystem.tankClick();
+          this.updateGiantTankHUD();
+        }
+        if (this.giantTank.isEmpty()) {
+          AudioSystem.star();
+          EduSystem.show('🎉 ¡Tanque vaciado! ¡Bien hecho!', 2000);
+        }
+        return;
+      }
+    }
     const candidates = this.containers.filter(c => !c.pickedUp && c.containsPoint(mx, my));
     if (candidates.length === 0) return;
     candidates.sort((a, b) => Utils.dist(mx, my, a.x, a.y) - Utils.dist(mx, my, b.x, b.y));
@@ -3532,6 +4020,10 @@ class Game {
     this.aggressiveMosquitoes = [];
     this.dog = null;
     this.tireStackCount = 0;
+    /* Reset estado tanque gigante */
+    this.chaosIsGiantTank = false;
+    this.giantTank = null;
+    this.giantTankCarrier = null;
     this.player = new Player(Config.playerName, {...Config.appearance}, 480, 380);
     this.player.repellentActive = false;
     this.player.repellentTimer = 0;
@@ -3565,14 +4057,30 @@ class Game {
     this._lastCountdownInt = -1;
     this.aggressiveMosquitoes = [];
     this.chaosMosquitoTimer = Utils.rand(1.5, 3);
-    this.chaosIsMiniboss = (waveNum % 7 === 0);
+
+    // Detección de oleadas especiales
+    // - Cada 8 oleadas: TANQUE GIGANTE (con prioridad sobre miniboss)
+    // - Cada 7 oleadas (y no múltiplo de 8): Miniboss
+    this.chaosIsGiantTank = (waveNum % 8 === 0);
+    this.chaosIsMiniboss = (waveNum % 7 === 0) && !this.chaosIsGiantTank;
     this._pendingTrucks = this.chaosIsMiniboss;
 
-    if (this.chaosIsMiniboss) {
+    // Reset tanque gigante
+    this.giantTank = null;
+    this.giantTankCarrier = null;
+
+    if (this.chaosIsGiantTank) {
+      this.chaosTotalToSpawn = 0;
+      this.chaosSpawnedCount = 0;
+      this.chaosSpawnTimer = 0.5;
+      this.chaosWaveTimeLimit = 20;
+      this.chaosTimeLeft = 20;
+      document.getElementById('hud-day').textContent = `💧 ¡TANQUE GIGANTE! Oleada ${waveNum}`;
+    } else if (this.chaosIsMiniboss) {
       const mbIndex = Math.floor(waveNum / 7);
       this.chaosTotalToSpawn = 0;
       this.chaosSpawnedCount = 0;
-      this.chaosWaveTimeLimit = 12 + mbIndex * 4;
+      this.chaosWaveTimeLimit = 16 + mbIndex * 4;
       this.chaosTimeLeft = this.chaosWaveTimeLimit;
       document.getElementById('hud-day').textContent = `🚚 ¡MINIBOSS! Oleada ${waveNum}`;
     } else {
@@ -3595,12 +4103,17 @@ class Game {
       }, 1500);
     }
   }
-  spawnChaosPerson() {
-    const types = ['bucket', 'pot', 'wateringcan', 'petbowl'];
-    let type = Utils.choice(types);
-    if (this.chaosWave >= 10 && this.chaosRepellentsThrown < 3 && Math.random() < 0.3) {
-      type = 'repellent';
-      this.chaosRepellentsThrown++;
+  spawnChaosPerson(forceType = null) {
+    let type;
+    if (forceType) {
+      type = forceType;
+    } else {
+      const types = ['bucket', 'pot', 'wateringcan', 'petbowl'];
+      type = Utils.choice(types);
+      if (this.chaosWave >= 10 && Math.random() < 0.3) {
+        type = 'repellent';
+        this.chaosRepellentsThrown++;
+      }
     }
     const fromLeft = Math.random() < 0.5;
     const side = fromLeft ? 'left' : 'right';
@@ -3611,7 +4124,9 @@ class Game {
     this.chaosPeople.push(person);
   }
   resolvePlayerTruckCollision(truck) {
-    const rect = truck.getRect();
+    this.resolvePlayerRectCollision(truck.getRect());
+  }
+  resolvePlayerRectCollision(rect) {
     const r = this.player.radius || 20;
     const left = rect.x - r;
     const right = rect.x + rect.w + r;
@@ -3642,6 +4157,13 @@ class Game {
       else this.player.updateTouch(dt, bounds, { dx: 0, dy: 0 });
     }
     for (const truck of this.chaosTrucks) this.resolvePlayerTruckCollision(truck);
+    // Colisión con carrier y con tanque gigante
+    if (this.giantTankCarrier && !this.giantTankCarrier.done) {
+      this.resolvePlayerRectCollision(this.giantTankCarrier.getRect());
+    }
+    if (this.giantTank) {
+      this.resolvePlayerRectCollision(this.giantTank.getRect());
+    }
 
     this.player.updateRepellent(dt);
 
@@ -3670,12 +4192,21 @@ class Game {
         this.chaosState = 'active';
         this.chaosSpawnTimer = 0.5;
         AudioSystem.countdownBeep(true);
-        if (this.chaosIsMiniboss) {
+        if (this.chaosIsGiantTank) {
+          // Spawn carrier + 3 repelent vecinos
+          const side = Math.random() < 0.5 ? 'left' : 'right';
+          this.giantTankCarrier = new GiantTankCarrier(side, this.giantTankTargetX, this.giantTankTargetY);
+          for (let i = 0; i < 3; i++) {
+            this.spawnChaosPerson('repellent');
+          }
+          AudioSystem.giantTank();
+          EduSystem.show(`💧 ¡OLEADA ${this.chaosWave}! Vienen vecinos con un TANQUE GIGANTE. ¡Clickeá rápido para vaciarlo!`, 4500);
+        } else if (this.chaosIsMiniboss) {
           AudioSystem.miniboss();
           const mbIndex = Math.floor(this.chaosWave / 7);
           const containersPerTruck = 8 + mbIndex * 2;
-          const truckL = new ChaosTruck('left', 130, containersPerTruck);
-          const truckR = new ChaosTruck('right', 830, containersPerTruck);
+          const truckL = new ChaosTruck('left', 130, containersPerTruck, 2);
+          const truckR = new ChaosTruck('right', 830, containersPerTruck, 2);
           this.chaosTrucks.push(truckL, truckR);
           EduSystem.show(`🚚 ¡MINIBOSS! Dos camionetas con vecinos tirando recipientes. ¡Vacialos todos!`, 4000);
         } else {
@@ -3686,7 +4217,9 @@ class Game {
           );
         }
       }
-      if (this.chaosIsMiniboss) {
+      if (this.chaosIsGiantTank) {
+        document.getElementById('hud-day').textContent = `💧 ¡Tanque gigante! Oleada ${this.chaosWave}`;
+      } else if (this.chaosIsMiniboss) {
         document.getElementById('hud-day').textContent = `🚚 Miniboss · ¡Preparate!`;
       } else {
         document.getElementById('hud-day').textContent = `🌊 Oleada ${this.chaosWave} · ¡Preparate!`;
@@ -3697,6 +4230,26 @@ class Game {
 
     /* ===== FASE ACTIVA ===== */
     for (const c of this.containers) c.update(dt);
+
+    /* ===== TANQUE GIGANTE: actualizar carrier y crear tanque ===== */
+    if (this.giantTankCarrier && !this.giantTankCarrier.done) {
+      const signal = this.giantTankCarrier.update(dt);
+      if (signal === 'placed' && !this.giantTank) {
+        this.giantTank = new GiantTank(this.giantTankCarrier.targetX, this.giantTankCarrier.targetY);
+        this.chaosTimerStarted = true;
+        this.chaosTimeLeft = this.chaosWaveTimeLimit;
+        AudioSystem.giantTank();
+        EduSystem.show('👆 ¡Clickeá el tanque RÁPIDO para vaciarlo! ¡30 clicks!', 3500);
+      }
+    }
+    if (this.giantTank) {
+      this.giantTank.update(dt);
+      // Si se vació, terminamos la oleada
+      if (this.giantTank.isEmpty() && !this.chaosWaveTransitioning) {
+        this.chaosCompleteWave();
+        return;
+      }
+    }
 
     for (let i = this.chaosTrucks.length - 1; i >= 0; i--) {
       const truck = this.chaosTrucks[i];
@@ -3728,15 +4281,16 @@ class Game {
           landX = Utils.rand(80, 880);
           landY = Utils.rand(100, 590);
         }
-        const types = ['bucket', 'pot', 'wateringcan', 'petbowl'];
-        const ctype = Utils.choice(types);
+        let ctype;
+        if (truck.nextThrowType === 'repellent') ctype = 'repellent';
+        else ctype = Utils.choice(['bucket', 'pot', 'wateringcan', 'petbowl']);
         this.chaosProjectiles.push(new ChaosProjectile(hand.x, hand.y, landX, landY, ctype));
         AudioSystem.pickup();
       }
       if (truck.done) this.chaosTrucks.splice(i, 1);
     }
 
-    if (!this.chaosIsMiniboss && this.chaosSpawnedCount < this.chaosTotalToSpawn) {
+    if (!this.chaosIsMiniboss && !this.chaosIsGiantTank && this.chaosSpawnedCount < this.chaosTotalToSpawn) {
       this.chaosSpawnTimer -= dt;
       if (this.chaosSpawnTimer <= 0) {
         this.spawnChaosPerson();
@@ -3771,6 +4325,17 @@ class Game {
               }
             }
           }
+          // Evitar la zona del tanque gigante (posición objetivo o real)
+          if (!tooClose) {
+            const tankCX = this.giantTank ? this.giantTank.x : this.giantTankTargetX;
+            const tankCY = this.giantTank ? this.giantTank.y : this.giantTankTargetY;
+            const tankW = this.giantTank ? this.giantTank.width : 300;
+            const tankH = this.giantTank ? this.giantTank.height : 240;
+            const avoidR = Math.max(tankW, tankH) / 2 + 60;
+            if (this.chaosIsGiantTank || this.giantTank) {
+              if (Utils.dist(landX, landY, tankCX, tankCY) < avoidR) { tooClose = true; }
+            }
+          }
           if (!tooClose) break;
           landX = Utils.rand(80, 880);
           landY = Utils.rand(100, 590);
@@ -3795,7 +4360,7 @@ class Game {
           AudioSystem.splash();
         }
         this.chaosProjectiles.splice(i, 1);
-        if (!this.chaosTimerStarted) this.chaosTimerStarted = true;
+        if (!this.chaosTimerStarted && !this.chaosIsGiantTank) this.chaosTimerStarted = true;
       }
     }
 
@@ -3817,13 +4382,15 @@ class Game {
 
     let trucksDone = true;
     for (const t of this.chaosTrucks) {
-      if (t.thrownCount < t.containerCount) { trucksDone = false; break; }
+      if (t.thrownCount < t.throwQueue.length) { trucksDone = false; break; }
     }
+    const carrierDone = !this.giantTankCarrier || this.giantTankCarrier.done;
     if (!this.chaosSpawningComplete &&
         this.chaosSpawnedCount >= this.chaosTotalToSpawn &&
         this.chaosPeople.length === 0 &&
         this.chaosProjectiles.length === 0 &&
-        trucksDone) {
+        trucksDone &&
+        carrierDone) {
       this.chaosSpawningComplete = true;
     }
 
@@ -3869,9 +4436,17 @@ class Game {
     UI.setMosquitoCount(waterCount);
 
     if (this.chaosTimerStarted && !this.chaosWaveTransitioning) {
-      if (this.chaosSpawningComplete && waterCount === 0) {
-        this.chaosCompleteWave();
-        return;
+      // Completado de oleada según tipo
+      if (this.chaosIsGiantTank) {
+        if (this.giantTank && this.giantTank.isEmpty()) {
+          this.chaosCompleteWave();
+          return;
+        }
+      } else {
+        if (this.chaosSpawningComplete && waterCount === 0) {
+          this.chaosCompleteWave();
+          return;
+        }
       }
       this.chaosTimeLeft -= dt;
       const pct = Math.max(0, (this.chaosTimeLeft / this.chaosWaveTimeLimit) * 100);
@@ -3882,30 +4457,59 @@ class Game {
       } else {
         bar.style.background = 'linear-gradient(90deg, #66BB6A, #FFC107, #FF7043)';
       }
-      if (this.chaosIsMiniboss) {
-        document.getElementById('hud-day').textContent =
-          `🚚 Miniboss · ⏱ ${Math.max(0, Math.ceil(this.chaosTimeLeft))}s`;
+      const dayEl = document.getElementById('hud-day');
+      if (this.chaosIsGiantTank) {
+        const remaining = this.giantTank ? this.giantTank.clicksRemaining : 30;
+        dayEl.textContent = `💧 Tanque · ⏱ ${Math.max(0, Math.ceil(this.chaosTimeLeft))}s · ${remaining} clicks`;
+      } else if (this.chaosIsMiniboss) {
+        dayEl.textContent = `🚚 Miniboss · ⏱ ${Math.max(0, Math.ceil(this.chaosTimeLeft))}s`;
       } else {
-        document.getElementById('hud-day').textContent =
-          `🌊 Oleada ${this.chaosWave} · ⏱ ${Math.max(0, Math.ceil(this.chaosTimeLeft))}s`;
+        dayEl.textContent = `🌊 Oleada ${this.chaosWave} · ⏱ ${Math.max(0, Math.ceil(this.chaosTimeLeft))}s`;
       }
       if (this.chaosTimeLeft <= 0) {
         this.chaosTimeLeft = 0;
-        this.chaosGameOver();
-        return;
+        if (this.chaosIsGiantTank) {
+          // Penalización: restar estrellas y resetear racha, pero NO perder
+          const remaining = this.giantTank ? this.giantTank.clicksRemaining : 0;
+          const penalty = Math.max(1, remaining);
+          this.score.stars = Math.max(0, this.score.stars - penalty);
+          this.score.resetStreak();
+          this.score.render();
+          AudioSystem.wrong();
+          EduSystem.show(`⏰ ¡Se acabó el tiempo! Perdiste ${penalty}⭐. Preparate para la siguiente...`, 4000);
+          this.chaosCompleteWave();
+          return;
+        } else {
+          this.chaosGameOver();
+          return;
+        }
       }
     } else {
-      if (this.chaosIsMiniboss) {
-        document.getElementById('hud-day').textContent = `🚚 Miniboss · ¡Preparate!`;
+      const dayEl = document.getElementById('hud-day');
+      if (this.chaosIsGiantTank) {
+        dayEl.textContent = `💧 ¡Tanque gigante! Oleada ${this.chaosWave}`;
+      } else if (this.chaosIsMiniboss) {
+        dayEl.textContent = `🚚 Miniboss · ¡Preparate!`;
       } else {
-        document.getElementById('hud-day').textContent =
-          `🌊 Oleada ${this.chaosWave} · ⏳ ${this.chaosSpawnedCount}/${this.chaosTotalToSpawn}`;
+        dayEl.textContent = `🌊 Oleada ${this.chaosWave} · ⏳ ${this.chaosSpawnedCount}/${this.chaosTotalToSpawn}`;
       }
     }
 
     this.updateChaosActionBar();
   }
   updateChaosActionBar() {
+    // Tanque gigante
+    if (this.giantTank && !this.giantTank.isEmpty()) {
+      if (this.isPlayerNearTank()) {
+        if (DeviceDetector.isTouch) UI.actionBar.innerHTML = '👆 Tocá el <b>TANQUE</b> para vaciar agua';
+        else UI.actionBar.innerHTML = '🖱️ <b>Clic IZQUIERDO</b> en el tanque para vaciar agua';
+        UI.actionBar.classList.add('active');
+      } else {
+        UI.actionBar.innerHTML = '🚶 ¡Acercate al tanque!';
+        UI.actionBar.classList.add('active');
+      }
+      return;
+    }
     let nearest = null, nearestD = Infinity;
     for (const c of this.containers) {
       if (c.state >= 1 && !c.flipped && !c.isCovered && !c.hasSoil && !c.hasCover && !c.isCleaned) {
@@ -3926,8 +4530,13 @@ class Game {
     for (const t of this.chaosTrucks) {
       if (t.state !== 'leaving' && t.state !== 'done') t.state = 'leaving';
     }
+    // Limpiar tanque gigante
+    this.giantTank = null;
+    this.giantTankCarrier = null;
     AudioSystem.waveClear();
-    if (this.chaosIsMiniboss) {
+    if (this.chaosIsGiantTank) {
+      EduSystem.show(`✅ ¡Oleada ${this.chaosWave} superada! ¡Buen trabajo con el tanque!`, 3000);
+    } else if (this.chaosIsMiniboss) {
       EduSystem.show(`✅ ¡Miniboss superado! ¡Buen trabajo! Preparate para lo que viene...`, 3000);
     } else {
       EduSystem.show(`✅ ¡Oleada ${this.chaosWave} superada! Preparate para la siguiente...`, 3000);
@@ -4095,6 +4704,8 @@ class Game {
       for (const proj of this.chaosProjectiles) proj.draw(ctx);
       for (const c of this.containers) c.draw(ctx);
       for (const item of this.chaosRepellentItems) item.draw(ctx);
+      if (this.giantTankCarrier) this.giantTankCarrier.draw(ctx);
+      if (this.giantTank) this.giantTank.draw(ctx);
       for (const truck of this.chaosTrucks) truck.draw(ctx);
       this.player.draw(ctx);
       for (const m of this.aggressiveMosquitoes) m.draw(ctx);
@@ -4137,7 +4748,10 @@ class Game {
     ctx.font = 'bold 30px Comic Sans MS, sans-serif';
     ctx.lineWidth = 6;
     ctx.strokeStyle = '#E65100';
-    const label = this.chaosIsMiniboss ? `¡MINIBOSS! Oleada ${this.chaosWave}` : `Oleada ${this.chaosWave}`;
+    let label;
+    if (this.chaosIsGiantTank) label = `💧 ¡TANQUE GIGANTE! Oleada ${this.chaosWave}`;
+    else if (this.chaosIsMiniboss) label = `¡MINIBOSS! Oleada ${this.chaosWave}`;
+    else label = `Oleada ${this.chaosWave}`;
     ctx.strokeText(label, 480, 540);
     ctx.fillStyle = '#FFFFFF';
     ctx.fillText(label, 480, 540);
@@ -4368,8 +4982,6 @@ window.addEventListener('load', () => {
 
   document.querySelectorAll('.map-card').forEach(card => {
     card.addEventListener('click', () => {
-      // Forzar modo clásico siempre que se entre por MAPAS,
-      // así si veníamos del modo caos no arranca en caos.
       Config.gameMode = 'classic';
       Config.selectedMap = card.dataset.map;
       Config.isMapMode = true;
