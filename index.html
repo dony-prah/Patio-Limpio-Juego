@@ -1469,6 +1469,10 @@
       <label>🔍 Texto grande:</label>
       <input type="checkbox" id="opt-text-large" style="width:22px;height:22px;cursor:pointer;" />
     </div>
+    <div class="options-row">
+      <label>⛶ Pantalla completa:</label>
+      <button class="btn" id="opt-fullscreen-btn" style="min-width:auto; padding: clamp(4px, 0.7vmin, 8px) clamp(10px, 2vmin, 20px); margin:0;">⛶ Activar</button>
+    </div>
     <button class="btn btn-primary" id="options-back-btn">◀ Volver</button>
   </div>
 
@@ -5820,6 +5824,25 @@ window.addEventListener('load', () => {
   document.getElementById('achievements-back-btn').addEventListener('click', () => UI.show('mainMenu'));
   document.getElementById('help-back-btn').addEventListener('click', () => UI.show('mainMenu'));
   document.getElementById('options-back-btn').addEventListener('click', () => UI.show('mainMenu'));
+  const optFullscreenBtn = document.getElementById('opt-fullscreen-btn');
+  function updateOptFullscreenBtn() {
+    if (!optFullscreenBtn) return;
+    const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+    optFullscreenBtn.textContent = isFs ? '🗗 Salir' : '⛶ Activar';
+  }
+  optFullscreenBtn.addEventListener('click', () => {
+    const doc = document;
+    const el = doc.documentElement;
+    const isFs = doc.fullscreenElement || doc.webkitFullscreenElement;
+    if (isFs) {
+      (doc.exitFullscreen || doc.webkitExitFullscreen).call(doc);
+    } else {
+      (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    }
+  });
+  document.addEventListener('fullscreenchange', updateOptFullscreenBtn);
+  document.addEventListener('webkitfullscreenchange', updateOptFullscreenBtn);
+  updateOptFullscreenBtn();
 
   document.querySelectorAll('.map-card').forEach(card => {
     card.addEventListener('click', () => {
