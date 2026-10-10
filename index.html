@@ -1181,6 +1181,13 @@
       height: clamp(6px, 1.4vmin, 11px);
       width: min(45%, 340px);
     }
+        /* PWA standalone: ocultar "Racha" y "Ganá estrellas" en horizontal */
+    @media (display-mode: standalone) {
+      #tutorial-screen .tutorial-card:nth-of-type(4),
+      #tutorial-screen .tutorial-card:nth-of-type(5) {
+        display: none;
+      }
+    }
   }
 </style>
 </head>
